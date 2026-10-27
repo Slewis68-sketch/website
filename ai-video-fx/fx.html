@@ -1,0 +1,371 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AI Video FX</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; background: #000; }
+  body { font-family: "Inter", "Inter Display", sans-serif; color: #fff; position: relative; }
+  #stage { position: absolute; inset: 0; overflow: hidden; }
+  #base { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .abs { position: absolute; }
+  .glass {
+    background: linear-gradient(145deg, rgba(255,255,255,.26), rgba(255,255,255,.08));
+    border: 1.5px solid rgba(255,255,255,.45);
+    backdrop-filter: blur(22px) saturate(1.4);
+    border-radius: 34px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.25);
+  }
+  .orange { color: #ff6a3d; }
+  #caption {
+    position: absolute; left: 60px; right: 60px; top: 1330px; text-align: center;
+    font: 900 66px/1.12 "Inter Display", "Inter"; letter-spacing: -1.5px;
+    text-shadow: 0 4px 18px rgba(0,0,0,.65), 0 0 2px #000;
+  }
+  #caption .w { opacity: .55; }
+  #caption .w.on { opacity: 1; }
+  #caption .w.hot { color: #ffb347; }
+  #badge {
+    position: absolute; left: 50%; bottom: 150px; transform: translateX(-50%);
+    padding: 16px 34px; border-radius: 999px; font: 700 34px "Inter";
+    background: rgba(255,255,255,.18); border: 1.5px solid rgba(255,255,255,.4);
+    backdrop-filter: blur(16px); white-space: nowrap;
+  }
+  #badge b { color: #ff6a3d; }
+  canvas.full { position: absolute; inset: 0; width: 1080px; height: 1920px; }
+</style>
+</head>
+<body>
+<div id="stage"><img id="base" alt=""></div>
+<script>
+const W = 1080, H = 1920;
+const stage = document.getElementById('stage');
+const base = document.getElementById('base');
+let SCRIPT = null, FX = null, built = false;
+
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const ease = x => 1 - Math.pow(1 - clamp(x), 3);
+const inOut = (t, a, d = 0.5) => ease((t - a) / d);           // 0→1 starting at a
+const el = (tag, cls, html, parent = stage) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html != null) e.innerHTML = html;
+  parent.appendChild(e);
+  return e;
+};
+const css = (e, o) => Object.assign(e.style, o);
+
+/* ---------- shared: captions + badge ---------- */
+let capEl, badgeEl;
+function buildCaptions(top) {
+  capEl = el('div', '', '');
+  capEl.id = 'caption';
+  if (top) capEl.style.top = top + 'px';
+}
+function renderCaptions(t) {
+  const seg = SCRIPT.segments.find(s => t >= s.start && t < s.end) || SCRIPT.segments.at(-1);
+  if (capEl.dataset.seg !== seg.text) {
+    capEl.dataset.seg = seg.text;
+    capEl.innerHTML = seg.text.split(' ').map(w => {
+      const bare = w.replace(/[^\w']/g, '');
+      return `<span class="w${seg.hot.includes(bare) ? ' hot' : ''}">${w}</span>`;
+    }).join(' ');
+  }
+  const words = [...capEl.children];
+  const p = (t - seg.start) / (seg.end - seg.start);
+  words.forEach((w, i) => w.classList.toggle('on', i / words.length <= p * 1.15));
+  const k = inOut(t, seg.start, 0.18);
+  capEl.style.transform = `translateY(${(1 - k) * 24}px) scale(${0.96 + 0.04 * k})`;
+}
+function buildBadge(text = 'Edited by <b>Claude</b>') {
+  badgeEl = el('div', '', text);
+  badgeEl.id = 'badge';
+}
+
+/* ---------- effect: glass-widgets ---------- */
+const glassWidgets = {
+  build() {
+    this.cards = [
+      { x: 60,  y: 170, w: 330, h: 300, at: 0.3, html: `<div style="font:600 30px Inter;opacity:.8">Claude</div><div style="font:900 150px/1 'Inter Display';letter-spacing:-6px">3</div><div style="font:600 32px Inter;opacity:.85">parts to a<br>great prompt</div>` },
+      { x: 610, y: 150, w: 410, h: 150, at: 0.7, html: `<div style="font:700 30px Inter">Rendering</div><div style="margin-top:22px;height:14px;border-radius:9px;background:rgba(255,255,255,.25)"><div class="bar" style="height:100%;width:0;border-radius:9px;background:#fff"></div></div>` },
+      { x: 640, y: 360, w: 380, h: 150, at: 3.8, html: `<div style="font:600 26px Inter;opacity:.8">STEP 1</div><div style="font:900 52px 'Inter Display'">Act as <span class="orange">…</span></div>` },
+      { x: 60,  y: 560, w: 380, h: 150, at: 6.3, html: `<div style="font:600 26px Inter;opacity:.8">STEP 2</div><div style="font:900 52px 'Inter Display'">Request</div>` },
+      { x: 640, y: 640, w: 380, h: 150, at: 8.5, html: `<div style="font:600 26px Inter;opacity:.8">STEP 3</div><div style="font:900 52px 'Inter Display'">Terms</div>` },
+      { x: 760, y: 900, w: 210, h: 210, at: 10.4, round: true, html: `<div style="width:150px;height:150px;border-radius:50%;border:12px solid #3ddc84;display:grid;place-items:center;font:900 52px 'Inter Display'">ART</div>` },
+    ];
+    this.cards.forEach(c => {
+      c.e = el('div', 'glass abs', c.html);
+      css(c.e, { left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px', padding: '26px 30px' });
+      if (c.round) css(c.e, { borderRadius: '50%', padding: '18px', display: 'grid', placeItems: 'center' });
+    });
+    buildCaptions(); buildBadge();
+  },
+  render(t) {
+    this.cards.forEach((c, i) => {
+      const k = inOut(t, c.at, 0.55);
+      const bob = Math.sin(t * 1.6 + i) * 8;
+      css(c.e, { opacity: k, transform: `translateY(${(1 - k) * 60 + bob}px) scale(${0.85 + 0.15 * k})` });
+    });
+    const bar = this.cards[1].e.querySelector('.bar');
+    bar.style.width = (clamp(t / SCRIPT.duration) * 100) + '%';
+    renderCaptions(t);
+  }
+};
+
+/* ---------- effect: documentary ---------- */
+const documentary = {
+  build() {
+    base.style.filter = 'grayscale(1) contrast(1.25) brightness(.85)';
+    this.glow = el('div', 'abs');
+    css(this.glow, { inset: 0, background: 'radial-gradient(circle at 34% 40%, rgba(255,40,110,.55), rgba(255,40,110,0) 38%)', mixBlendMode: 'screen' });
+    this.vig = el('div', 'abs');
+    css(this.vig, { inset: 0, background: 'radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(0,0,0,.75) 100%)' });
+    this.kicker = el('div', 'abs', `${SCRIPT.series} &middot; DAILY`);
+    css(this.kicker, { left: '70px', top: '150px', font: "700 30px Inter", letterSpacing: '6px', opacity: .9 });
+    this.lines = ['ONE PROMPT.', 'THREE <span class="orange">PARTS.</span>', '<span class="orange">ZERO</span> CODE.'].map((h, i) => {
+      const e = el('div', 'abs', h);
+      css(e, { right: '60px', top: (430 + i * 128) + 'px', font: "900 122px/1 'Inter Display'", letterSpacing: '-4px', textAlign: 'right', textShadow: '0 6px 30px rgba(0,0,0,.6)' });
+      return e;
+    });
+    this.lower = el('div', 'abs', `<div style="background:#ff2d78;padding:14px 30px;font:900 44px 'Inter Display';letter-spacing:2px">${SCRIPT.name}</div><div style="padding:10px 30px;font:600 28px Inter;background:rgba(0,0,0,.55)">${SCRIPT.series}</div>`);
+    css(this.lower, { left: '70px', top: '1120px' });
+    this.grain = el('canvas', 'full'); this.grain.width = 540; this.grain.height = 960;
+    css(this.grain, { opacity: .16, mixBlendMode: 'overlay' });
+    this.gctx = this.grain.getContext('2d');
+    buildCaptions(1360);
+  },
+  render(t) {
+    this.lines.forEach((e, i) => {
+      const k = inOut(t, 0.4 + i * 0.35, 0.35);
+      css(e, { opacity: k, transform: `translateX(${(1 - k) * 120}px)` });
+    });
+    const lk = inOut(t, 1.6, 0.5);
+    css(this.lower, { opacity: lk, transform: `translateX(${(1 - lk) * -80}px)` });
+    this.kicker.style.opacity = inOut(t, 0.1, 0.6);
+    const img = this.gctx.createImageData(540, 960);
+    let seed = Math.floor(t * 30) * 9973 + 1;
+    for (let i = 0; i < img.data.length; i += 4) {
+      seed = (seed * 16807) % 2147483647;
+      const v = seed & 255;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255;
+    }
+    this.gctx.putImageData(img, 0, 0);
+    renderCaptions(t);
+  }
+};
+
+/* ---------- effect: orbit ---------- */
+const orbit = {
+  build() {
+    const items = [['📄', 'PDF'], ['✉️', 'Email'], ['🧾', 'Receipt'], ['📑', 'Contract'], ['📷', 'Photo'], ['📊', 'Spreadsheet'], ['🩺', 'Medical bill'], ['📝', 'Notes']];
+    this.items = items.map(([ic, label]) => {
+      const e = el('div', 'glass abs', `<div style="font-size:64px;line-height:1">${ic}</div><div style="font:800 28px Inter;margin-top:8px">${label}</div>`);
+      css(e, { width: '200px', height: '170px', marginLeft: '-100px', marginTop: '-85px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: '26px' });
+      return e;
+    });
+    this.title = el('div', 'abs', `Claude can <span class="orange">read</span> all of it.`);
+    css(this.title, { left: 0, right: 0, top: '150px', textAlign: 'center', font: "900 76px 'Inter Display'", letterSpacing: '-2px', textShadow: '0 4px 20px rgba(0,0,0,.5)' });
+    buildCaptions(); buildBadge();
+  },
+  render(t) {
+    const n = this.items.length, cx = 540, cy = 760, rx = 430, ry = 150;
+    this.items.forEach((e, i) => {
+      const a = t * 0.55 + (i / n) * Math.PI * 2;
+      const depth = (Math.sin(a) + 1) / 2;                 // 1 = front
+      const k = inOut(t, 0.2 + i * 0.12, 0.5);
+      const s = (0.62 + 0.48 * depth) * k;
+      css(e, {
+        left: (cx + Math.cos(a) * rx) + 'px', top: (cy + Math.sin(a) * ry - 220 * (1 - depth) * 0.4) + 'px',
+        transform: `scale(${s})`, opacity: k * (0.35 + 0.65 * depth), zIndex: Math.round(depth * 10),
+        filter: `blur(${(1 - depth) * 3}px)`
+      });
+    });
+    const tk = inOut(t, 0, 0.6);
+    css(this.title, { opacity: tk, transform: `translateY(${(1 - tk) * -30}px)` });
+    renderCaptions(t);
+  }
+};
+
+/* ---------- effect: split ---------- */
+const split = {
+  build() {
+    css(base, { top: '960px', height: '960px', objectPosition: '50% 32%' });
+    this.panel = el('div', 'abs');
+    css(this.panel, { left: 0, top: 0, width: '1080px', height: '960px', background: '#f6efe6', color: '#1b1b1b', padding: '90px 70px' });
+    this.panel.innerHTML = `
+      <div style="font:900 72px/1.05 'Inter Display';letter-spacing:-2px">Same AI.<br>Different <span style="color:#e8572a;font-style:italic">prompt</span>.</div>
+      <div class="c1" style="margin-top:50px;background:#fff;border-radius:28px;padding:30px 34px;box-shadow:0 10px 30px rgba(0,0,0,.08)">
+        <div style="font:700 26px Inter;color:#999;letter-spacing:3px">❌ WHAT MOST PEOPLE TYPE</div>
+        <div class="t1" style="font:600 40px/1.3 Inter;margin-top:12px"></div>
+      </div>
+      <div class="c2" style="margin-top:28px;background:#1b1b1b;color:#fff;border-radius:28px;padding:30px 34px">
+        <div style="font:700 26px Inter;color:#ff8a5c;letter-spacing:3px">✅ WHAT WORKS</div>
+        <div class="t2" style="font:600 36px/1.35 Inter;margin-top:12px"></div>
+      </div>`;
+    this.t1 = this.panel.querySelector('.t1'); this.t2 = this.panel.querySelector('.t2');
+    this.c2 = this.panel.querySelector('.c2');
+    this.txt1 = 'write a meal plan';
+    this.txt2 = '<b style="color:#ff8a5c">Act as</b> a budget-friendly nutritionist. <b style="color:#ff8a5c">Write</b> a 5-day dinner plan for a family of 4. <b style="color:#ff8a5c">Terms:</b> under $80, no pork, 30 min max.';
+    this.line = el('div', 'abs'); css(this.line, { left: 0, right: 0, top: '957px', height: '6px', background: '#e8572a' });
+    buildCaptions(1500);
+  },
+  render(t) {
+    const n1 = Math.floor(clamp((t - 0.6) / 1.6) * this.txt1.length);
+    this.t1.textContent = this.txt1.slice(0, n1) + (t < 3.4 && Math.floor(t * 2) % 2 ? '|' : '');
+    const k2 = inOut(t, 3.6, 0.5);
+    css(this.c2, { opacity: k2, transform: `translateY(${(1 - k2) * 40}px)` });
+    const plain = this.txt2.replace(/<[^>]+>/g, '');
+    const n2 = Math.floor(clamp((t - 3.9) / 6.0) * plain.length);
+    // reveal rich text by plain-character count
+    let out = '', count = 0;
+    for (const part of this.txt2.split(/(<[^>]+>)/)) {
+      if (part.startsWith('<')) { out += part; continue; }
+      const take = Math.max(0, Math.min(part.length, n2 - count));
+      out += part.slice(0, take); count += part.length;
+    }
+    this.t2.innerHTML = out;
+    renderCaptions(t);
+  }
+};
+
+/* ---------- effect: spotlight ---------- */
+const spotlight = {
+  build() {
+    this.shade = el('div', 'abs'); css(this.shade, { inset: 0 });
+    this.dots = el('div', 'abs');
+    css(this.dots, { inset: 0, backgroundImage: 'radial-gradient(rgba(255,190,120,.35) 2px, transparent 2.5px)', backgroundSize: '22px 22px' });
+    this.tag = el('div', 'abs', `<div style="font:700 28px Inter;letter-spacing:5px;color:#ffb347">THE #1 MISTAKE</div><div style="font:900 78px/1.02 'Inter Display';letter-spacing:-2px;margin-top:10px">Treating AI<br>like Google.</div>`);
+    css(this.tag, { left: '70px', top: '160px' });
+    buildCaptions(); buildBadge();
+  },
+  render(t) {
+    const r = 330 + Math.sin(t * 1.3) * 12 + (1 - inOut(t, 0, 1.2)) * 500;
+    const cx = 540, cy = 820;
+    const g = `radial-gradient(circle ${r}px at ${cx}px ${cy}px, transparent 0, transparent ${r - 70}px, rgba(0,0,0,.84) ${r}px)`;
+    this.shade.style.background = g;
+    this.dots.style.webkitMaskImage = this.dots.style.maskImage = `radial-gradient(circle ${r}px at ${cx}px ${cy}px, transparent ${r - 10}px, #000 ${r + 40}px)`;
+    const k = inOut(t, 0.6, 0.6);
+    css(this.tag, { opacity: k * (t < 3.6 ? 1 : 1 - inOut(t, 3.6, 0.4)), transform: `translateX(${(1 - k) * -60}px)` });
+    renderCaptions(t);
+  }
+};
+
+/* ---------- effect: checklist ---------- */
+const checklist = {
+  build() {
+    this.panel = el('div', 'abs');
+    css(this.panel, { left: '70px', right: '70px', top: '150px', background: 'rgba(20,20,22,.78)', backdropFilter: 'blur(20px)', borderRadius: '34px', padding: '34px 40px', border: '1.5px solid rgba(255,255,255,.12)' });
+    const steps = [['Tell it who to act as', 3.8], ['Say exactly what you want', 6.4], ['Give it the rules', 8.6], ['Ask it to question you first', 10.6], ['Check its facts', 12.4]];
+    this.panel.innerHTML = `<div style="display:flex;justify-content:space-between;font:700 30px Inter"><span><span class="orange">●</span> Claude is building your prompt</span><span style="opacity:.5;font-size:24px">LIVE</span></div>` +
+      steps.map((s, i) => `<div class="row" data-at="${s[1]}" style="display:flex;align-items:center;gap:22px;margin-top:22px;font:600 36px Inter"><span class="box" style="width:44px;height:44px;border-radius:50%;border:3px solid rgba(255,255,255,.4);display:grid;place-items:center;font:900 26px Inter;flex:none"></span><span class="lbl">${s[0]}</span></div>`).join('');
+    this.rows = [...this.panel.querySelectorAll('.row')];
+    buildCaptions(); buildBadge();
+  },
+  render(t) {
+    const pk = inOut(t, 0.3, 0.6);
+    css(this.panel, { opacity: pk, transform: `translateY(${(1 - pk) * -40}px)` });
+    this.rows.forEach(r => {
+      const at = +r.dataset.at, done = t >= at, active = !done && t >= at - 2.4;
+      const box = r.querySelector('.box');
+      box.textContent = done ? '✓' : '';
+      css(box, { background: done ? '#3ddc84' : 'transparent', borderColor: done ? '#3ddc84' : active ? '#ff6a3d' : 'rgba(255,255,255,.4)', color: '#0b1a10' });
+      r.querySelector('.lbl').style.opacity = done ? 1 : active ? .9 : .45;
+    });
+    renderCaptions(t);
+  }
+};
+
+/* ---------- effect: timeline ---------- */
+const timeline = {
+  build() {
+    css(base, { left: '90px', top: '820px', width: '900px', height: '1000px', borderRadius: '36px', objectPosition: '50% 30%' });
+    stage.style.background = 'linear-gradient(#f3e7d8, #e9d6c0)';
+    this.ui = el('div', 'abs');
+    css(this.ui, { left: '60px', right: '60px', top: '120px', height: '640px', background: '#16131c', borderRadius: '30px', padding: '28px', boxShadow: '0 30px 80px rgba(0,0,0,.3)' });
+    const segs = SCRIPT.segments;
+    const tracks = [
+      ['Video', segs.map(s => [s.start, s.end, '#7c5cff'])],
+      ['Captions', segs.map(s => [s.start, s.end, '#ff6a3d'])],
+      ['FX', [[0, segs[1].start, '#ff2d78'], [segs[1].start, segs.at(-1).start, '#3ddc84'], [segs.at(-1).start, SCRIPT.duration, '#ffb347']]],
+      ['Audio', [[0, SCRIPT.duration, '#2f8cff']]],
+    ];
+    this.ui.innerHTML = `<div style="font:800 40px 'Inter Display';color:#fff">Claude <i style="color:#ff6a3d;font-family:serif;font-weight:400">renders it</i></div>
+      <div style="display:flex;gap:10px;margin-top:14px">${['Cut', 'Captions', 'Color', 'Export 1080p'].map(x => `<span style="font:600 22px Inter;padding:8px 16px;border-radius:12px;background:#2a2533;color:#cbc4d9">${x}</span>`).join('')}</div>
+      <div class="tracks" style="position:relative;margin-top:30px">${tracks.map(([n, cl]) => `
+        <div style="display:flex;align-items:center;height:92px;border-bottom:1px solid #2a2533">
+          <div style="width:150px;font:600 24px Inter;color:#9a92ab">${n}</div>
+          <div style="position:relative;flex:1;height:58px">${cl.map(([a, b, c]) => `<div style="position:absolute;top:0;bottom:0;left:${a / SCRIPT.duration * 100}%;width:calc(${(b - a) / SCRIPT.duration * 100}% - 4px);background:${c};border-radius:10px;opacity:.9"></div>`).join('')}</div>
+        </div>`).join('')}
+        <div class="head" style="position:absolute;top:-10px;bottom:-10px;width:4px;background:#fff;border-radius:2px;box-shadow:0 0 12px #fff"></div>
+      </div>
+      <div class="tc" style="margin-top:18px;font:600 26px 'DejaVu Sans Mono';color:#9a92ab"></div>`;
+    this.head = this.ui.querySelector('.head'); this.tc = this.ui.querySelector('.tc');
+    buildCaptions(1560);
+  },
+  render(t) {
+    const left = 150 + (this.ui.clientWidth - 56 - 150) * clamp(t / SCRIPT.duration);
+    this.head.style.left = left + 'px';
+    const f = Math.floor(t * 30) % 30, s = Math.floor(t);
+    this.tc.textContent = `00:00:${String(s).padStart(2, '0')}:${String(f).padStart(2, '0')}  /  00:00:${String(SCRIPT.duration).padStart(2, "0")}:00   ·   rendering ${Math.round(clamp(t / SCRIPT.duration) * 100)}%`;
+    renderCaptions(t);
+  }
+};
+
+/* ---------- showreel interstitial: Claude Code style chat ---------- */
+const chat = {
+  build(params) {
+    this.name = params.get('name') || 'glass-widgets';
+    base.style.display = 'none';
+    stage.style.background = '#1f1e1c';
+    el('div', 'abs', `<div style="display:flex;gap:40px;justify-content:center;font:600 34px Inter;color:#8c8780"><span>Chat</span><span style="color:#fff;background:#34322e;padding:6px 26px;border-radius:14px;margin-top:-6px">Code</span></div>`).style.cssText = 'left:0;right:0;top:110px';
+    this.thumb = el('canvas', 'abs'); this.thumb.width = 130; this.thumb.height = 200;
+    css(this.thumb, { right: '60px', top: '220px', borderRadius: '18px' });
+    this.cmd = el('div', 'abs', `/effects ${this.name}`);
+    css(this.cmd, { right: '60px', top: '450px', font: "600 44px 'DejaVu Sans Mono'", color: '#ff8a5c' });
+    this.status = el('div', 'abs', `<span class="orange">✺</span> Editing with ${this.name}…`);
+    css(this.status, { left: '60px', top: '540px', font: '500 36px Inter', color: '#cfc9c0' });
+    this.sped = el('div', 'abs', 'SPED UP'); css(this.sped, { right: '60px', top: '548px', font: '700 24px Inter', letterSpacing: '4px', color: '#6c6760' });
+    this.dots = el('canvas', 'abs'); this.dots.width = 640; this.dots.height = 980;
+    css(this.dots, { left: '60px', top: '620px', borderRadius: '20px', background: '#151412' });
+    this.off = document.createElement('canvas'); this.off.width = 64; this.off.height = 98;
+  },
+  render(t) {
+    const tctx = this.thumb.getContext('2d');
+    if (base.naturalWidth) tctx.drawImage(base, 0, 0, 130, 200);
+    const ck = inOut(t, 0.1, 0.4);
+    css(this.cmd, { opacity: ck, transform: `translateY(${(1 - ck) * 20}px)` });
+    this.status.style.opacity = this.sped.style.opacity = inOut(t, 0.5, 0.3);
+    const ok = this.off.getContext('2d', { willReadFrequently: true });
+    if (!base.naturalWidth) return;
+    ok.drawImage(base, 0, 0, 64, 98);
+    const px = ok.getImageData(0, 0, 64, 98).data;
+    const d = this.dots.getContext('2d');
+    d.fillStyle = '#151412'; d.fillRect(0, 0, 640, 980);
+    const reveal = clamp((t - 0.6) / 1.2);
+    for (let y = 0; y < 98; y++) for (let x = 0; x < 64; x++) {
+      const i = (y * 64 + x) * 4;
+      const lum = (px[i] * .3 + px[i + 1] * .59 + px[i + 2] * .11) / 255;
+      const flick = ((x * 31 + y * 17 + Math.floor(t * 12)) % 7) / 7;
+      if (flick > reveal * 1.2 + 0.1) continue;
+      d.fillStyle = `rgba(255,${120 + lum * 100},${60 + lum * 60},${0.15 + lum * 0.85})`;
+      d.beginPath(); d.arc(x * 10 + 5, y * 10 + 5, 1.2 + lum * 3.6, 0, 7); d.fill();
+    }
+  }
+};
+
+const EFFECTS = { 'glass-widgets': glassWidgets, documentary, orbit, split, spotlight, checklist, timeline, chat };
+
+window.setup = async (fxName, script, query = '') => {
+  SCRIPT = script; FX = EFFECTS[fxName];
+  if (!FX) throw new Error('unknown fx ' + fxName);
+  FX.build(new URLSearchParams(query));
+};
+window.renderFrame = async (src, t) => {
+  base.src = src;
+  await base.decode();
+  FX.render(t);
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+{
+  "title": "Stop using AI like Google",
+  "series": "AI FOR EVERYDAY PEOPLE",
+  "name": "PATH",
+  "duration": 16,
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 4.2,
+      "text": "Most people use AI like a search engine, and get boring answers.",
+      "hot": [
+        "search",
+        "engine",
+        "boring"
+      ]
+    },
+    {
+      "start": 4.2,
+      "end": 8.0,
+      "text": "Here's the fix: tell it who to act as.",
+      "hot": [
+        "act",
+        "as"
+      ]
+    },
+    {
+      "start": 8.0,
+      "end": 10.4,
+      "text": "Tell it exactly what you want.",
+      "hot": [
+        "exactly"
+      ]
+    },
+    {
+      "start": 10.4,
+      "end": 12.4,
+      "text": "Then give it the rules.",
+      "hot": [
+        "rules"
+      ]
+    },
+    {
+      "start": 12.4,
+      "end": 16.0,
+      "text": "Do that, and Claude becomes your assistant.",
+      "hot": [
+        "Claude",
+        "assistant"
+      ]
+    }
+  ]
+}
