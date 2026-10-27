@@ -2,12 +2,51 @@
   "title": "Stop using AI like Google",
   "series": "AI FOR EVERYDAY PEOPLE",
   "name": "SHAWN LEWIS",
-  "duration": 15,
+  "duration": 16,
   "segments": [
-    { "start": 0.0,  "end": 3.6,  "text": "Most people use AI like a search engine and get boring answers.", "hot": ["search", "engine", "boring"] },
-    { "start": 3.6,  "end": 6.2,  "text": "Here's the fix. Tell it who to act as.", "hot": ["act", "as"] },
-    { "start": 6.2,  "end": 8.4,  "text": "Tell it exactly what you want.", "hot": ["exactly"] },
-    { "start": 8.4,  "end": 10.2, "text": "Then give it the rules.", "hot": ["rules"] },
-    { "start": 10.2, "end": 15.0, "text": "Do that, and Claude stops being a toy and starts being your assistant.", "hot": ["Claude", "assistant"] }
+    {
+      "start": 0.0,
+      "end": 4.2,
+      "text": "Most people use AI like a search engine, and get boring answers.",
+      "hot": [
+        "search",
+        "engine",
+        "boring"
+      ]
+    },
+    {
+      "start": 4.2,
+      "end": 8.0,
+      "text": "Here's the fix: tell it who to act as.",
+      "hot": [
+        "act",
+        "as"
+      ]
+    },
+    {
+      "start": 8.0,
+      "end": 10.4,
+      "text": "Tell it exactly what you want.",
+      "hot": [
+        "exactly"
+      ]
+    },
+    {
+      "start": 10.4,
+      "end": 12.4,
+      "text": "Then give it the rules.",
+      "hot": [
+        "rules"
+      ]
+    },
+    {
+      "start": 12.4,
+      "end": 16.0,
+      "text": "Do that, and Claude becomes your assistant.",
+      "hot": [
+        "Claude",
+        "assistant"
+      ]
+    }
   ]
 }
