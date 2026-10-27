@@ -16,7 +16,7 @@ if (!baseArg || !outArg) { console.error('usage: node render.mjs <base.mp4> <out
 const BASE = resolve(baseArg), OUT = resolve(outArg), WORK = join(OUT, '.work');
 const FPS = 30, WORKERS = 4;
 const script = JSON.parse(readFileSync(join(HERE, 'script.json'), 'utf8'));
-const fxList = fxArg === 'all' ? ALL : fxArg.split(',');
+const fxList = fxArg === 'all' ? ALL : fxArg === 'none' ? [] : fxArg.split(','); // 'none' + --showreel reuses existing renders
 const ff = (...a) => execFileSync('ffmpeg', ['-v', 'error', '-y', ...a], { stdio: 'inherit' });
 const hasAudio = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0', BASE]).toString().trim() !== '';
 
