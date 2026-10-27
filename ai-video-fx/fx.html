@@ -287,15 +287,15 @@ const timeline = {
     const tracks = [
       ['Video', segs.map(s => [s.start, s.end, '#7c5cff'])],
       ['Captions', segs.map(s => [s.start, s.end, '#ff6a3d'])],
-      ['FX', [[0, 3.6, '#ff2d78'], [3.6, 10.2, '#3ddc84'], [10.2, 15, '#ffb347']]],
-      ['Audio', [[0, 15, '#2f8cff']]],
+      ['FX', [[0, segs[1].start, '#ff2d78'], [segs[1].start, segs.at(-1).start, '#3ddc84'], [segs.at(-1).start, SCRIPT.duration, '#ffb347']]],
+      ['Audio', [[0, SCRIPT.duration, '#2f8cff']]],
     ];
     this.ui.innerHTML = `<div style="font:800 40px 'Inter Display';color:#fff">Claude <i style="color:#ff6a3d;font-family:serif;font-weight:400">renders it</i></div>
       <div style="display:flex;gap:10px;margin-top:14px">${['Cut', 'Captions', 'Color', 'Export 1080p'].map(x => `<span style="font:600 22px Inter;padding:8px 16px;border-radius:12px;background:#2a2533;color:#cbc4d9">${x}</span>`).join('')}</div>
       <div class="tracks" style="position:relative;margin-top:30px">${tracks.map(([n, cl]) => `
         <div style="display:flex;align-items:center;height:92px;border-bottom:1px solid #2a2533">
           <div style="width:150px;font:600 24px Inter;color:#9a92ab">${n}</div>
-          <div style="position:relative;flex:1;height:58px">${cl.map(([a, b, c]) => `<div style="position:absolute;top:0;bottom:0;left:${a / 15 * 100}%;width:calc(${(b - a) / 15 * 100}% - 4px);background:${c};border-radius:10px;opacity:.9"></div>`).join('')}</div>
+          <div style="position:relative;flex:1;height:58px">${cl.map(([a, b, c]) => `<div style="position:absolute;top:0;bottom:0;left:${a / SCRIPT.duration * 100}%;width:calc(${(b - a) / SCRIPT.duration * 100}% - 4px);background:${c};border-radius:10px;opacity:.9"></div>`).join('')}</div>
         </div>`).join('')}
         <div class="head" style="position:absolute;top:-10px;bottom:-10px;width:4px;background:#fff;border-radius:2px;box-shadow:0 0 12px #fff"></div>
       </div>
@@ -307,7 +307,7 @@ const timeline = {
     const left = 150 + (this.ui.clientWidth - 56 - 150) * clamp(t / SCRIPT.duration);
     this.head.style.left = left + 'px';
     const f = Math.floor(t * 30) % 30, s = Math.floor(t);
-    this.tc.textContent = `00:00:${String(s).padStart(2, '0')}:${String(f).padStart(2, '0')}  /  00:00:15:00   ·   rendering ${Math.round(clamp(t / SCRIPT.duration) * 100)}%`;
+    this.tc.textContent = `00:00:${String(s).padStart(2, '0')}:${String(f).padStart(2, '0')}  /  00:00:${String(SCRIPT.duration).padStart(2, "0")}:00   ·   rendering ${Math.round(clamp(t / SCRIPT.duration) * 100)}%`;
     renderCaptions(t);
   }
 };
